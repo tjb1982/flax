@@ -1,7 +1,6 @@
 (ns co.nclk.flax.core-test
   (:require [clojure.test :refer :all]
             [clj-yaml.core :as yaml]
-            [co.nclk.flax.node :refer [node-manager]]
             [co.nclk.flax.core :as flax]))
 
 
