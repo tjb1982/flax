@@ -38,15 +38,29 @@
       (-> result integer? is)
       (->> result (instance? java.lang.Integer) is)
       (-> result (= 1) is))
-    (let [map* {:foo "bar" :baz 123}
+    (let [map* {:foo "bar" :baz 123 :quux {:lala "june"}}
           result
           (flax/evaluate
             (yaml/parse-string
-              "foo: bar\nbaz: 123"))]
+              "foo: bar\nbaz: 123\nquux:\n  lala: june"))]
       (-> result coll? is)
       (-> result associative? is)
       (-> result sequential? not is)
       (-> result map? is)
+      (-> result (= map*) is))
+    (let [map* {:foo {:bar {:baz "quux"}}}
+          result
+          (flax/evaluate
+            (yaml/parse-string
+              "foo.bar:\n  baz: quux")
+            {:env {:foo {:bar "baz"}}})]
+      (-> result (= map*) is))
+    (let [map* {:foo {:bar ["one" 2]}}
+          result
+          (flax/evaluate
+            (yaml/parse-string
+              "foo.bar.1: 2")
+            {:env {:foo {:bar ["one" "two"]}}})]
       (-> result (= map*) is))
     (let [list** '(1 "two" three)
           result
@@ -59,7 +73,7 @@
               "))]
       (-> result coll? is)
       (-> result sequential? is)
-      (-> result list? is)
+      (-> result vector? is)
       (-> result count (= 3) is)
       (-> result (= list**) is))
     )

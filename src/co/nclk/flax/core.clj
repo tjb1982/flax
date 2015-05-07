@@ -97,168 +97,207 @@
 
 (defn evaluate
   [m & [config custom-eval]]
-  (let [evaluate (or custom-eval evaluate)
-        env (or (:env config) config)]
-    (cond
-      (string? m)
-      (swap m env)
-
-      (keyword? m)
-      (keyword (swap (subs (str m) 1) env))
-
-      (symbol? m)
-      (symbol (swap (name m) env))
-
-      (map? m)
+  (try
+    (let [evaluate (or custom-eval evaluate)
+          env (or (:env config) config)]
       (cond
+        (string? m)
+        (swap m env)
 
-        ;; Functions and special forms
-        (->> (keys m) (some #(-> % str (subs 1) (.startsWith "~("))))
-        (let [fun-entry (->> m
-                             (filter
-                               #(-> % key str (subs 1) (.startsWith "~(")))
-                             first)
-              fun (-> fun-entry key str (subs 3) symbol)
-              do-statements (fn [statements config]
-                              (loop [statements statements last-ret nil]
-                                (if (empty? statements)
-                                  last-ret
-                                  (let [ret (evaluate (first statements) config)]
-                                    (recur (drop 1 statements) ret)))))]
-          (condp = fun
-            ;; Special forms
+        (keyword? m)
+        (keyword (swap (subs (str m) 1) env))
 
-            'if
-            (evaluate
-              ((if (evaluate (-> fun-entry val first) env)
-                 second #(nth % 2 nil))
-                (-> fun-entry val))
-              config)
+        (symbol? m)
+        (symbol (swap (name m) env))
 
-            'let
-            (let [bindings (-> fun-entry val first)]
-              (if-not (even? (count bindings))
-                (throw (IllegalArgumentException.
-                         (format
-                           "`let` requires an even number of bindings: %s"
-                           bindings)))
-                (let [bindings (-> fun-entry val first)
+        (map? m)
+        (cond
+
+          ;; Functions and special forms
+          (->> (keys m) (some #(-> % str (subs 1) (.startsWith "~("))))
+          (let [fun-entry (->> m
+                               (filter
+                                 #(-> % key str (subs 1) (.startsWith "~(")))
+                               first)
+                fun (-> fun-entry key str (subs 3) symbol)
+                do-statements (fn [statements config]
+                                (loop [statements statements last-ret nil]
+                                  (if (empty? statements)
+                                    last-ret
+                                    (let [ret (evaluate (first statements) config)]
+                                      (recur (drop 1 statements) ret)))))]
+            (condp = fun
+              ;; Special forms
+
+              'if
+              (evaluate
+                ((if (evaluate (-> fun-entry val first) config)
+                   second #(nth % 2 nil))
+                  (-> fun-entry val))
+                config)
+
+              'let
+              (let [bindings (-> fun-entry val first)]
+                (if-not (even? (count bindings))
+                  (throw (IllegalArgumentException.
+                           (format
+                             "`let` requires an even number of bindings: %s"
+                             bindings)))
+                  (let [bindings (-> fun-entry val first)
+                        statements (->> fun-entry val (drop 1))
+                        env (loop [bindings bindings
+                                   env env]
+                              (if (empty? bindings)
+                                env
+                                (recur (drop 2 bindings)
+                                       (merge env
+                                              {(evaluate
+                                                 (keyword 
+                                                   (first bindings))
+                                                 config)
+                                               (evaluate
+                                                 (second bindings)
+                                                 config)}))))]
+                    (do-statements statements (assoc config :env env)))))
+
+              'fn
+              (fn [& argv]
+                (let [args (-> fun-entry val first) ;; list of strings
                       statements (->> fun-entry val (drop 1))
-                      env (loop [bindings bindings
+                      env (loop [args args
+                                 argv argv
                                  env env]
-                            (if (empty? bindings)
+                            (if (empty? args)
                               env
-                              (recur (drop 2 bindings)
-                                     (merge env
-                                            {(evaluate
-                                               (keyword 
-                                                 (first bindings))
-                                               config)
-                                             (evaluate
-                                               (second bindings)
-                                               config)}))))]
-                  (do-statements statements (assoc config :env env)))))
+                              (let [env (merge env
+                                               {(evaluate
+                                                  (keyword (first args)) config)
+                                                (evaluate (first argv) config)})]
+                                (recur (drop 1 args)
+                                       (drop 1 argv)
+                                       env))))]
+                  (do-statements statements (assoc config :env env))))
 
-            'fn
-            (fn [& argv]
-              (let [args (-> fun-entry val first) ;; list of strings
-                    statements (->> fun-entry val (drop 1))
-                    env (loop [args args
-                               argv argv
-                               env env]
-                          (if (empty? args)
-                            env
-                            (let [env (merge env
-                                             {(evaluate
-                                                (keyword (first args)) config)
-                                              (evaluate (first argv) config)})]
-                              (recur (drop 1 args)
-                                     (drop 1 argv)
-                                     env))))]
-                (do-statements statements (assoc config :env env))))
+              (symbol "#")
+              (fn [& argv]
+                (let [env (merge env
+                                 (into {}
+                                   (map-indexed
+                                     (fn [idx item]
+                                       [(keyword (str idx))
+                                        (evaluate item config)])
+                                     argv)))]
+                  (do-statements (-> fun-entry val) (assoc config :env env))))
 
-            (symbol "#")
-            (fn [& argv]
-              (let [env (merge env
-                               (into {}
-                                 (map-indexed
-                                   (fn [idx item]
-                                     [(keyword (str idx))
-                                      (evaluate item config)])
-                                   argv)))]
-                (do-statements (-> fun-entry val) (assoc config :env env))))
+              'for
+              (let [coll (-> fun-entry val first second (evaluate config))]
+                (doall
+                  (map
+                    #(let [env (merge env
+                                      {(keyword
+                                         (-> fun-entry
+                                             val
+                                             ffirst
+                                             (evaluate config)))
+                                       %})]
+                      (evaluate
+                        (->> fun-entry val (drop 1)) config))
+                    coll)))
 
-            'for
-            (let [coll (-> fun-entry val first second (evaluate config))]
-              (doall
-                (map
-                  #(let [env (merge env
-                                    {(keyword
-                                       (-> fun-entry
-                                           val
-                                           ffirst
-                                           (evaluate config)))
-                                     %})]
-                    (evaluate
-                      (->> fun-entry val (drop 1)) config))
-                  coll)))
+              'or
+              (loop [args (-> fun-entry val)]
+                (when-not (empty? args)
+                  (let [yield (evaluate (first args) config)]
+                    (if-not yield
+                      (recur (drop 1 args))
+                      yield))))
 
-            'or
-            (loop [args (-> fun-entry val)]
-              (when-not (empty? args)
-                (let [yield (evaluate (first args) config)]
-                  (if-not yield
-                    (recur (drop 1 args))
-                    yield))))
+              'and
+              (loop [args (-> fun-entry val)
+                     last-yield nil]
+                (if (empty? args)
+                  last-yield
+                  (let [yield (evaluate (first args) config)]
+                    (if-not yield
+                      false
+                      (recur (drop 1 args) yield)))))
 
-            'and
-            (loop [args (-> fun-entry val)
-                   last-yield nil]
-              (if (empty? args)
-                last-yield
-                (let [yield (evaluate (first args) config)]
-                  (if-not yield
-                    false
-                    (recur (drop 1 args) yield)))))
+              'parallel
+              (upmap #(evaluate % config)
+                (-> fun-entry val))
 
-            'parallel
-            (upmap #(evaluate % config)
-              (-> fun-entry val))
+              ;; FIXME: rename this to something more indicative of what it does.
+              'upmap
+              (apply upmap (evaluate (-> m first val) config))
 
-            ;; FIXME: rename this to something more indicative of what it does.
-            'upmap
-            (apply upmap (evaluate (-> m first val) config))
-
-            'log
-            (let [args (-> fun-entry val)]
-              (log (evaluate (-> args first keyword) config)
-                   (apply str
-                     (map #(evaluate % config) (drop 1 args)))))
+              'log
+              (let [args (-> fun-entry val)]
+                (log (evaluate (-> args first keyword) config)
+                     (apply str
+                       (map #(evaluate % config) (drop 1 args)))))
 
 
-            ;; Functions
-            (let [yield (apply (resolve fun)
-                               (evaluate (-> m first val) config))]
-              (if (coll? yield)
-                ;; FIXME: Laziness disabled?
-                (doall yield)
-                yield))))
+              ;; Functions
+              (let [yield (apply (resolve fun)
+                                 (evaluate (-> m first val) config))]
+                (if (coll? yield)
+                  ;; FIXME: Laziness disabled?
+                  (doall yield)
+                  yield))))
 
-        ;; All other maps
-        :else
-        (into (empty m)
-          (map (fn [[k v]]
-                 (if (= k :assert)
-                   [k v]
-                   [(evaluate k config) (evaluate v config)]))
-               m)))
+          ;; All other maps
+          :else
+          (into (empty m)
+            (reduce
+              (fn [nm [k v]]
+                (conj nm
+                  (cond
+                    (= k :assert)
+                    [k v]
 
-      ;; Other collections
-      (coll? m)
-      ((if (seq? m) reverse identity)
-        (into (empty m) (doall (map (fn [item] (evaluate item config)) m))))
+                    (-> k name (.contains "."))
+                    (let [keyparts (clojure.string/split (name k) #"\.")
+                          newkey (-> keyparts first keyword)
+                          selvec (->> keyparts
+                                      (drop 1)
+                                      (map #(try
+                                             (Integer/parseInt %)
+                                             (catch java.lang.NumberFormatException nfe
+                                               (keyword %))))
+                                      (into []))
+                          oldval (or (get nm newkey) (get env newkey))]
+                      (cond
+                        (and (-> k name (.endsWith "."))
+                             (coll? v))
+                        (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
+                              newval (reduce (fn [k]
+                                               (assoc-in oldval (conj selvec k)
+                                               "lalala")
+                                             oldval
+                                             (keys v)))]
+                          )
+                        ;;;;
 
-      :else m)))
+                        :else
+                        ;; replace the base value with a new value with assoc-in
+                        (let [newval (assoc-in oldval selvec (evaluate v config))]
+                          [newkey newval])))
+
+                    :else [(evaluate k config) (evaluate v config)])))
+              {}
+              m)))
+
+        ;; Other collections
+        (coll? m)
+        (into (if (seq? m) [] (empty m))
+              (doall (map (fn [item] (evaluate item config)) m)))
+
+        :else m))
+    (catch Exception e
+      (clojure.pprint/pprint m)
+      (println (:env config))
+      (throw e))
+    ))
 
 
 (def ascii-art "
