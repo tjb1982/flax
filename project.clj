@@ -8,7 +8,8 @@
                  [ch.qos.logback/logback-classic "1.1.3"]
                  [stencil "0.5.0"]
                  [clj-ssh "0.5.11"]
-                 [circleci/clj-yaml "0.5.3"]
+                 ;;[circleci/clj-yaml "0.5.3"]
+                 [co.nclk/clj-yaml "0.1.0-SNAPSHOT"]
                  ]
   :aot :all
   )

@@ -5,10 +5,10 @@
 
 
 (deftest test-basic-functionality
-  (testing "~(log:"
+  #_(testing "~(co.nclk.flax/log:"
     (let [result (flax/evaluate
                    (yaml/parse-string
-                     "~(log:
+                     "~(co.nclk.flax.core/log:
                       - ~:info
                       - foo bar baz"), {})]
       (-> result nil? is)))

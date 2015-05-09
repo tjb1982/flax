@@ -126,6 +126,19 @@
                                     last-ret
                                     (let [ret (evaluate (first statements) config)]
                                       (recur (drop 1 statements) ret)))))]
+            #_(let [sexp (conj
+                         (->> (val fun-entry)
+                              (map-indexed
+                                #(let [item (evaluate %2 config)]
+                                  (if (contains? #{'let 'fn 'binding 'for} fun)
+                                    (if (= %1 0)
+                                      (into [] item) item)
+                                    (if (contains? #{'defn} fun)
+                                      (if (= %1 1)
+                                        (into [] item) item)
+                                      item)))))
+                         fun)]
+              (eval sexp))
             (condp = fun
               ;; Special forms
 
@@ -154,10 +167,10 @@
                                               {(evaluate
                                                  (keyword 
                                                    (first bindings))
-                                                 config)
+                                                 (assoc config :env env))
                                                (evaluate
                                                  (second bindings)
-                                                 config)}))))]
+                                                 (assoc config :env env))}))))]
                     (do-statements statements (assoc config :env env)))))
 
               'fn
@@ -234,7 +247,8 @@
               (let [args (-> fun-entry val)]
                 (log (evaluate (-> args first keyword) config)
                      (apply str
-                       (map #(evaluate % config) (drop 1 args)))))
+                       (map #(with-out-str (clojure.pprint/pprint (evaluate % config)))
+                            (drop 1 args)))))
 
 
               ;; Functions
@@ -294,8 +308,14 @@
 
         :else m))
     (catch Exception e
-      (clojure.pprint/pprint m)
-      (println (:env config))
+      (println (.getMessage e))
+      (log :error
+        (with-out-str
+          (clojure.pprint/pprint m)))
+      (log :debug
+        (with-out-str
+          (println "\nEnvironment:")
+          (clojure.pprint/pprint (:env config))))
       (throw e))
     ))
 
