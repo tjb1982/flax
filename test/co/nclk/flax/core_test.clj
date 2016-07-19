@@ -76,6 +76,20 @@
       (-> result vector? is)
       (-> result count (= 3) is)
       (-> result (= list**) is))
+
+    (let [map* {:foo {:bar ["one" 2]}}
+          result
+          (flax/evaluate
+            (yaml/parse-string
+              "
+~(let:
+- - lala
+  - foo.bar.1: three
+    foo.bar.1: four
+- ~@lala
+              ")
+            {:env {:foo {:bar ["one" "two"]}}})]
+      (-> result (= {:foo {:bar ["one" "four"]}}) is))
     )
 
   (testing "Functions"

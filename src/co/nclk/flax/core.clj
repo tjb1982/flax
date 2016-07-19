@@ -39,6 +39,21 @@
     (let [k (keyword key*)]
       (get env k))))
 
+(defn dot-get
+  [target env]
+  (loop [target target env env]
+    (cond
+      (-> target (.contains "."))
+      (let [parts (-> target (clojure.string/split #"\." 2))]
+        ;; TODO support bracket sugar (e.g., foo[0].bar[baz])
+        (recur (second parts)
+               (get-with-string-maybe-index (first parts) env)))
+      :else
+      (when-not (or (not (coll? env))
+                    (empty? env)
+                    (clojure.string/blank? target))
+        (let [data (get-with-string-maybe-index target env)]
+          (if (string? data) (clojure.string/trim data) data))))))
 
 (defn swap
   [s env]
@@ -61,21 +76,10 @@
     ;; Supports '.' notation (e.g., foo.bar.0.baz etc.)
     (.startsWith s "~@")
     (let [target (-> s (subs 2))]
-      (loop [target target env env]
-        (cond
-          (-> target (.contains "."))
-          (let [parts (-> target (clojure.string/split #"\." 2))]
-            ;; TODO support bracket sugar (e.g., foo[0].bar[baz])
-            (recur (second parts)
-                   (get-with-string-maybe-index (first parts) env)))
-          :else
-          (when-not (or (empty? env)
-                        (clojure.string/blank? target))
-            (let [data (get-with-string-maybe-index target env)]
-              (if (string? data) (clojure.string/trim data) data))))))
+      (dot-get target env))
 
     ;; If `s` starts with "~$", then replace it with the
-    ;; stdout result of running the script locally.
+    ;; stdout result of running the command locally.
     (.startsWith s "~$")
     (let [s (subs s 2)
           proc (-> (Runtime/getRuntime)
@@ -202,6 +206,20 @@
                                      argv)))]
                   (do-statements (-> fun-entry val) (assoc config :env env))))
 
+              'pathwise
+              (let [parts (clojure.string/split (-> fun-entry val (nth 2) (evaluate config)) #"\.")
+                    cfun (-> fun-entry val first (evaluate config))
+                    pred (-> fun-entry val second (evaluate config))
+                    testers (map #(dot-get % env)
+                                 (reduce
+                                   (fn [coll part]
+                                     (if (last coll)
+                                       (conj coll (str (last coll) "." part))
+                                       (conj coll part)))
+                                   []
+                                   parts))]
+                (cfun pred testers))
+
               'for
               (let [coll (-> fun-entry val first second (evaluate config))]
                 (doall
@@ -308,14 +326,15 @@
 
         :else m))
     (catch Exception e
-      (println (.getMessage e))
-      (log :error
-        (with-out-str
-          (clojure.pprint/pprint m)))
-      (log :debug
-        (with-out-str
-          (println "\nEnvironment:")
-          (clojure.pprint/pprint (:env config))))
+      (when (or (map? m) (not (coll? m)))
+        (println (type e))
+        (log :error
+          (with-out-str
+            (clojure.pprint/pprint m)))
+        (log :debug
+          (with-out-str
+            (println "\nEnvironment:")
+            (clojure.pprint/pprint (:env config)))))
       (throw e))
     ))
 
