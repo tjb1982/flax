@@ -10,6 +10,7 @@
                  [clj-ssh "0.5.11"]
                  ;;[circleci/clj-yaml "0.5.3"]
                  [co.nclk/clj-yaml "0.1.0-SNAPSHOT"]
+                 [cheshire "5.6.3"]
                  ]
   :aot :all
   )

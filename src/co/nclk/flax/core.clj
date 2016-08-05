@@ -2,6 +2,7 @@
   (:require [clj-yaml.core :as yaml]
             [clojure.tools.logging :refer [log]]
             [co.nclk.flax.data :as data]
+            [cheshire.core :as json]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
   ;; FIXME: does this belong here? Should there be a generic mechanism for 
@@ -55,6 +56,22 @@
         (let [data (get-with-string-maybe-index target env)]
           (if (string? data) (clojure.string/trim data) data))))))
 
+(defn pprint-interpolate
+  [s label handler env]
+  (let [regex (re-pattern (str "~\\{" (name label) ":[\\w\\.-]+\\}"))]
+    (loop [s s]
+      (let [match (re-find regex s)]
+        (if (nil? match)
+          s
+          (let [v (-> match
+                      (subs (+ 3 (-> label name count))
+                            (- (count match) 1))
+                      (dot-get env))]
+            (recur (clojure.string/replace-first
+                     s
+                     regex
+                     (handler v)))))))))
+
 (defn swap
   [s env]
   (cond
@@ -94,13 +111,21 @@
               (recur (conj lines line)))))))
 
     ;; Interpolate.
-    :else (render
-            (parse s @parser-options)
-            env)))
+    :else (-> s
+            (pprint-interpolate :json json/generate-string env)
+            (pprint-interpolate :yaml yaml/generate-string env)
+            (pprint-interpolate :pprint
+                                #(-> % clojure.pprint/pprint
+                                       with-out-str
+                                       clojure.string/trim)
+                                env)
+            (parse @parser-options)
+            (render env)
+            )))
 
 
 (defn evaluate
-  [m & [config custom-eval]]
+  [m & [config custom-eval regex-str]]
   (try
     (let [evaluate (or custom-eval evaluate)
           env (or (:env config) config)]
@@ -145,6 +170,15 @@
               (eval sexp))
             (condp = fun
               ;; Special forms
+
+              'clj
+              (let [form (clojure.walk/postwalk
+                           (fn [x]
+                             (if (map? x)
+                               (into {} x)
+                               x))
+                           (-> fun-entry val first (evaluate config) read-string))]
+                (eval form))
 
               'if
               (evaluate
