@@ -88,6 +88,10 @@
     (.startsWith s "~'")
     (symbol (subs s 2))
 
+    ;; Support for resolved symbol literals.
+    (.startsWith s "~>'")
+    (resolve (symbol (subs s 3)))
+
     ;; If `s` starts with ~@, then replace it with the data held by the
     ;; variable (i.e., not a string interpolation of it).
     ;; Supports '.' notation (e.g., foo.bar.0.baz etc.)
