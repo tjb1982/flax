@@ -317,46 +317,48 @@
 
           ;; All other maps
           :else
-          (into (if (record? m) m (empty m))
-            (reduce
-              (fn [nm [k v]]
-                (let [k (evaluate k config)]
-                  (conj nm
-                    (cond
-                      (= k :assert)
-                      [k v]
+          (if (record? m)
+            m
+            (into (empty m)
+              (reduce
+                (fn [nm [k v]]
+                  (let [k (evaluate k config)]
+                    (conj nm
+                      (cond
+                        (= k :assert)
+                        [k v]
 
-                      (-> k name (.contains "."))
-                      (let [keyparts (clojure.string/split (name k) #"\.")
-                            newkey (-> keyparts first keyword)
-                            selvec (->> keyparts
-                                        (drop 1)
-                                        (map #(try
-                                               (Integer/parseInt %)
-                                               (catch java.lang.NumberFormatException nfe
-                                                 (keyword %))))
-                                        (into []))
-                            oldval (or (get nm newkey) (get env newkey))]
-                        (cond
-                          (and (-> k name (.endsWith "."))
-                               (coll? v))
-                          (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
-                                newval (reduce (fn [k]
-                                                 (assoc-in oldval (conj selvec k)
-                                                 "lalala")
-                                               oldval
-                                               (keys v)))]
-                            )
-                          ;;;;
+                        (-> k name (.contains "."))
+                        (let [keyparts (clojure.string/split (name k) #"\.")
+                              newkey (-> keyparts first keyword)
+                              selvec (->> keyparts
+                                          (drop 1)
+                                          (map #(try
+                                                 (Integer/parseInt %)
+                                                 (catch java.lang.NumberFormatException nfe
+                                                   (keyword %))))
+                                          (into []))
+                              oldval (or (get nm newkey) (get env newkey))]
+                          (cond
+                            (and (-> k name (.endsWith "."))
+                                 (coll? v))
+                            (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
+                                  newval (reduce (fn [k]
+                                                   (assoc-in oldval (conj selvec k)
+                                                   "lalala")
+                                                 oldval
+                                                 (keys v)))]
+                              )
+                            ;;;;
 
-                          :else
-                          ;; replace the base value with a new value with assoc-in
-                          (let [newval (assoc-in oldval selvec (evaluate v config))]
-                            [newkey newval])))
+                            :else
+                            ;; replace the base value with a new value with assoc-in
+                            (let [newval (assoc-in oldval selvec (evaluate v config))]
+                              [newkey newval])))
 
-                      :else [(evaluate k config) (evaluate v config)]))))
-              {}
-              m)))
+                        :else [(evaluate k config) (evaluate v config)]))))
+                {}
+                m))))
 
         ;; Other collections
         (coll? m)
