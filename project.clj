@@ -1,4 +1,4 @@
-(defproject co.nclk/flax "2.0.3"
+(defproject co.nclk/flax "2.0.4"
   :description "Clojure library: YAML as a Clojure dialect."
   :url "https://github.com/tjb1982/flax"
   :license {:name "Eclipse Public License"

@@ -330,31 +330,64 @@
 
                         (-> k name (.contains "."))
                         (let [keyparts (clojure.string/split (name k) #"\.")
-                              newkey (-> keyparts first keyword)
-                              selvec (->> keyparts
-                                          (drop 1)
-                                          (map #(try
-                                                 (Integer/parseInt %)
-                                                 (catch java.lang.NumberFormatException nfe
-                                                   (keyword %))))
-                                          (into []))
-                              oldval (or (get nm newkey) (get env newkey))]
-                          (cond
-                            (and (-> k name (.endsWith "."))
-                                 (coll? v))
-                            (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
-                                  newval (reduce (fn [k]
-                                                   (assoc-in oldval (conj selvec k)
-                                                   "lalala")
-                                                 oldval
-                                                 (keys v)))]
-                              )
-                            ;;;;
+                              newkey (-> keyparts first keyword)]
+                          (if (not-any? #(contains? % newkey) [nm env])
+                            [k v]
+                            (let [oldval (or (get nm newkey) (get env newkey))
+                                  selvec (->> keyparts
+                                              (drop 1)
+                                              (map #(try
+                                                     (Integer/parseInt %)
+                                                     (catch java.lang.NumberFormatException nfe
+                                                       (keyword %))))
+                                              (into []))]
+                              (cond
 
-                            :else
-                            ;; replace the base value with a new value with assoc-in
-                            (let [newval (assoc-in oldval selvec (evaluate v config))]
-                              [newkey newval])))
+                                (and (-> k name (.endsWith "."))
+                                     (coll? v))
+                                (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
+                                      newval (reduce (fn [k]
+                                                       (assoc-in oldval (conj selvec k)
+                                                       "lalala")
+                                                     oldval
+                                                     (keys v)))]
+                                  )
+                                ;;;;
+
+                                :else
+                                ;; replace the base value with a new value with assoc-in
+                                (let [newval (assoc-in oldval selvec (evaluate v config))]
+                                  [newkey newval])))))
+
+                        ;;(-> k name (.contains "."))
+                        ;;(let [keyparts (clojure.string/split (name k) #"\.")
+                        ;;      newkey (-> keyparts first keyword)
+                        ;;      selvec (->> keyparts
+                        ;;                  (drop 1)
+                        ;;                  (map #(try
+                        ;;                         (Integer/parseInt %)
+                        ;;                         (catch java.lang.NumberFormatException nfe
+                        ;;                           (keyword %))))
+                        ;;                  (into []))
+                        ;;      oldval (or (get nm newkey) (get env newkey))]
+                        ;;  (if (nil? oldval)
+                        ;;    [k v]
+                        ;;    (cond
+                        ;;      (and (-> k name (.endsWith "."))
+                        ;;           (coll? v))
+                        ;;      (let [ev (evaluate v (assoc config :env (merge env (get-in oldval selvec))))
+                        ;;            newval (reduce (fn [k]
+                        ;;                             (assoc-in oldval (conj selvec k)
+                        ;;                             "lalala")
+                        ;;                           oldval
+                        ;;                           (keys v)))]
+                        ;;        )
+                        ;;      ;;;;
+
+                        ;;      :else
+                        ;;      ;; replace the base value with a new value with assoc-in
+                        ;;      (let [newval (assoc-in oldval selvec (evaluate v config))]
+                        ;;        [newkey newval]))))
 
                         :else [(evaluate k config) (evaluate v config)]))))
                 {}
