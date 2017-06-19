@@ -332,7 +332,7 @@
                         (let [keyparts (clojure.string/split (name k) #"\.")
                               newkey (-> keyparts first keyword)]
                           (if (not-any? #(contains? % newkey) [nm env])
-                            [k v]
+                            [k (evaluate v config)]
                             (let [oldval (or (get nm newkey) (get env newkey))
                                   selvec (->> keyparts
                                               (drop 1)
