@@ -1,4 +1,5 @@
 (ns co.nclk.flax.data
+  (:refer-clojure :exclude [resolve])
   (:require [clj-yaml.core :as yaml])
   (:gen-class))
 

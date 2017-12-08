@@ -1,8 +1,34 @@
-#data-connector: co.nclk.flax.data
-#effective: 1444586330418
-#program: ~/nclk/flax/resources/program.yaml
 program:
-  main:
-  - module:
-      checkpoints:
-      - - invocation: echo Hello world
+  one: 1
+  two: 2
+
+program.:
+  three: 3
+  four:
+    five: 5
+
+program.four.:
+  six: 6
+
+program.four.seven.:
+- 8
+- 9
+
+program.four.seven.:
+- 10
+
+program.eleven:
+- 11
+
+program.eleven.:
+- 12
+- 13
+
+#should.be:
+#  program:
+#    one: 1
+#    two: 2
+#    three: 3
+#    four:
+#      five: 5
+#      six: 6
