@@ -115,7 +115,7 @@
     ;; If `s` starts with "~$", then replace it with the
     ;; stdout result of running the command locally.
     (.startsWith s "~$")
-    (let [s (subs s 2)
+    (let [s (swap (subs s 2) env evaluate)
           proc (-> (Runtime/getRuntime)
                  (.exec (into-array String
                           ["bash" "-c" (clojure.string/trim s)])))
