@@ -324,39 +324,47 @@
     {(-> k name (clojure.string/split #"\.") first keyword) (evaluate newval config)}
     ))
 
+(defn parse-keyparts
+  [k]
+  (->> (clojure.string/split (name k) #"\." -1)
+       (reduce
+         (fn [p c]
+           (cond
+             (nil? (last p))
+             (conj p c)
+
+             (clojure.string/includes? (last p) "\\")
+             (conj
+               ;; `vec` because we need to conj to the end.
+               (-> p count dec (take p) vec)
+               (str
+                 (subs (last p) 0 (-> p last count dec))
+                 "." c))
+
+             :else
+             (conj p c)))
+         [])
+       (map #(try
+              (Integer/parseInt %)
+              (catch java.lang.NumberFormatException nfe
+                (if (clojure.string/blank? %)
+                  nil (keyword %)))))
+       (into [])))
+
 (defn evaluate-dotted-entry
-  [m k v env config evaluate]
-  (let [keyparts (->> (clojure.string/split (name k) #"\." -1)
-                      (reduce
-                        (fn [p c]
-                          (cond
-                            (nil? (last p))
-                            (conj p c)
+  [m k v env]
+  (let [ks (parse-keyparts k)]
+    (assoc-in env (vec ks) v)))
 
-                            (clojure.string/includes? (last p) "\\")
-                            (conj
-                              (take (dec (count p)) p)
-                              (str
-                                (subs (last p) 0 (-> p last count dec))
-                                "." c))
-
-                            :else
-                            (conj p c)))
-                        [])
-                      (map #(try
-                             (Integer/parseInt %)
-                             (catch java.lang.NumberFormatException nfe
-                               (if (clojure.string/blank? %)
-                                 nil (keyword %)))))
-                      (into []))]
-    ((fn go [m [k & ks] v]
-      (if ks
-        (if (-> ks first nil?)
-          (assoc m k ((if (sequential? v) concat merge) (k m) v))
-          (assoc m k (go (get m k) ks v)))
-        (assoc m k v)))
-      m keyparts (evaluate v config))
-    ))
+    ;;((fn go [m [k & ks] v]
+    ;;  (assoc-in env (vec (conj ks k)) v)
+    ;;  #_(if ks
+    ;;    (if (-> ks first nil?)
+    ;;      (assoc m k ((if (sequential? v) concat merge) (get m k) v))
+    ;;      (assoc m k (go (get m k) ks v)))
+    ;;    (assoc m k v)))
+    ;;  m keyparts v)
+    ;;))
         
 
 (defn evaluate-map-literal
@@ -373,7 +381,7 @@
                 [k v]
 
                 (-> k name (.contains "."))
-                (evaluate-dotted-entry nm k v env config evaluate)
+                (evaluate-dotted-entry nm k (evaluate v config) env)
 
                 ;; k is already evaluated above
                 :else [k (evaluate v config)]))))
@@ -417,10 +425,11 @@
 
         :else m)
     (catch Exception e
-      (throw
+      (throw 
         (RuntimeException.
           (json/generate-string {:env env})
-          e))))))
+          e)))
+      )))
 
 
 (def ascii-art "
