@@ -3,7 +3,7 @@
             [clj-yaml.core :as yaml]
             [co.nclk.flax.core :as flax]))
 
-(deftest test-inline-functions
+#_(deftest test-inline-functions
   (testing "Inline selectors behave like methods"
     (let [result (flax/evaluate
                    "~@foo.$str(world)"

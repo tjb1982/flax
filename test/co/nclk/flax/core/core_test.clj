@@ -106,14 +106,24 @@
 
   (testing "~clj strings"
     (let [env {:foo {:bar "baz"}}
-          result
+          result1
           (flax/evaluate
             (yaml/parse-string "
               foo.dog.chester.doodle: ~clj
                   (let [x ~{pprint:foo}]
                     (-> x :bar))")
-            env)]
-      (-> result :foo :dog :chester :doodle (= "baz") is)))
+            env)
+          result2
+          (flax/evaluate (yaml/parse-string
+                           "foo.dog.chester.doodle: ~(identity ~@foo.bar)")
+                         env)
+          result3
+          (flax/evaluate (yaml/parse-string
+                           "foo.dog: '~(:~{baz} ~@x)'")
+                         {:baz "quux" :x {:quux "lalala"}})]
+      (-> result1 :foo :dog :chester :doodle (= "baz") is)
+      (-> result2 :foo :dog :chester :doodle (= "baz") is)
+      (-> result3 :foo :dog (= "lalala") is)))
 
 
   (testing "Environment"

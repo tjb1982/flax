@@ -16,6 +16,9 @@
 
 (cheshire/add-encoder clojure.lang.Var cheshire/encode-str)
 
+(declare swap)
+(declare evaluate)
+
 (def parser-options (atom {:tag-open "~{" :tag-close "}"}))
 (def ^:dynamic *pipeline* nil)
 
@@ -62,24 +65,12 @@
         (let [data (get-with-string-maybe-index target env)]
           (if (string? data) (clojure.string/trim data) data))))))
 
-(defn pprint-interpolate
-  [s label handler env]
-  (let [regex (re-pattern (str "~\\{" (name label) ":[\\w\\.-]+\\}"))]
-    (loop [s s]
-      (let [match (re-find regex s)]
-        (if (nil? match)
-          s
-          (let [v (-> match
-                      (subs (+ 3 (-> label name count))
-                            (- (count match) 1))
-                      (dot-get env))]
-            (recur (clojure.string/replace-first
-                     s
-                     regex
-                     (handler v)))))))))
 
-(declare swap)
-(declare evaluate)
+(defn pprint-handler
+  [v]
+  (-> v clojure.pprint/pprint
+        with-out-str
+        clojure.string/trim))
 
 (defn eval-clj-string
   [s config]
@@ -90,6 +81,41 @@
                    x))
                (-> s (swap config) read-string))]
     (eval form)))
+
+(defn pprint-interpolate
+  [s label handler env]
+  ;;(let [regex (re-pattern (str "~\\{" (name label) ":[\\w\\.-]+\\}"))]
+  (let [regex (re-pattern
+                (str "~\\{" (name label) ":[^\\s\\}]+\\}" ;;":[\\w\\.-]+\\}"
+                     (when (= label :pprint)
+                       (str "|~\\@[^\\s\\)\\]\\;\\}]+" ;;"|~\\@[\\w\\.-]+"
+                            "|~\\([^\\)]*\\)"))))]
+    (loop [s s final ""]
+      (if (clojure.string/blank? s)
+        final
+        (let [match (re-find regex s)]
+          (if (nil? match)
+            (recur nil (str final s))
+            (let [v (if (and (= label :pprint)
+                             (not (.startsWith match "~{")))
+                      (cond
+                        (-> match (.startsWith "~@"))
+                        (-> match (subs 2) (dot-get env))
+
+                        (and (-> match (.startsWith "~("))
+                             (-> match (.endsWith ")")))
+                        (-> match (subs 1) (swap {:env env})
+                            (eval-clj-string {:env env})))
+                      (-> match 
+                          (subs (+ 3 (-> label name count))
+                                (- (count match) 1))
+                          (dot-get env)))
+                  after-match-idx (+ (.indexOf s match) (.length match))]
+              (recur (subs s after-match-idx)
+                     (str final (clojure.string/replace-first
+                                  (subs s 0 after-match-idx)
+                                  regex
+                                  (handler v)))))))))))
 
 (def ^:dynamic *env* nil)
 (defn swap
@@ -116,7 +142,8 @@
       ;; If `s` starts with ~@, then replace it with the data held by the
       ;; variable (i.e., not a string interpolation of it).
       ;; Supports '.' notation (e.g., foo.bar.0.baz etc.)
-      (.startsWith s "~@")
+      (and (.startsWith s "~@")
+           (not (re-find #"\s" (.trim s))))
       (let [target (-> s (subs 2))]
         (dot-get target (:env config)))
 
@@ -138,15 +165,15 @@
       (.startsWith s "~clj")
       (eval-clj-string (subs s 4) config)
 
+      ;; easier Clj interpolation.
+      (and (.startsWith s "~(") (.endsWith s ")"))
+      (eval-clj-string (subs s 1) config)
+
       ;; Interpolate.
       :else (-> s
               (pprint-interpolate :json json/generate-string env)
               (pprint-interpolate :yaml yaml/generate-string env)
-              (pprint-interpolate :pprint
-                                  #(-> % clojure.pprint/pprint
-                                         with-out-str
-                                         clojure.string/trim)
-                                  env)
+              (pprint-interpolate :pprint pprint-handler env)
               (parse @parser-options)
               (render env)
               ))))

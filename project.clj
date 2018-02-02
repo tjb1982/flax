@@ -13,5 +13,5 @@
                  [cheshire "5.6.3"]
                  ]
   :aot :all
-  :main co.nclk.flax.main
+  ;:main co.nclk.flax.main
   )
