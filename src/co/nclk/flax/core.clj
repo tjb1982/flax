@@ -337,8 +337,16 @@
 
 
       ;; Functions
-      (let [yield (apply (resolve fun)
-                         (*pipeline* (-> m first val) config))]
+      (let [yield (try
+                    (apply (resolve fun)
+                           (*pipeline* (-> m first val) config))
+                    (catch NullPointerException npe
+                      (log :error (format (str "Caught NullPointerException while calling "
+                                               "function \"%s\" with arguments: %s")
+                                          (name fun)
+                                          (vec m)))
+                        (throw npe)
+                        ))]
         (if (coll? yield)
           ;; FIXME: Laziness disabled?
           (doall yield)

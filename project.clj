@@ -10,7 +10,7 @@
                  [clj-ssh "0.5.11"]
                  ;;[circleci/clj-yaml "0.5.3"]
                  [co.nclk/clj-yaml "1.0.0"]
-                 [cheshire "5.6.3"]
+                 [cheshire "5.8.0"]
                  ]
   :aot :all
   ;:main co.nclk.flax.main
