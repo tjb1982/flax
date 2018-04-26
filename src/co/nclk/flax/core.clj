@@ -193,6 +193,8 @@
                         (loop [statements statements last-ret nil]
                           (if (empty? statements)
                             last-ret
+                            ;;(let [ret (binding [*env* (:env config)]
+                            ;;            (pipeline (first statements) config))]
                             (let [ret (pipeline (first statements) config)]
                               (recur (drop 1 statements) ret)))))]
     ;; XXX: An interesting idea because it's more "pure", but not sure it works.
@@ -260,7 +262,8 @@
                           (recur (drop 1 args)
                                  (drop 1 argv)
                                  env))))]
-            (do-statements statements (assoc config :env env) pipeline))))
+            (binding [*env* env]
+              (do-statements statements (assoc config :env env) pipeline)))))
 
       (symbol "#")
       (let [pipeline *pipeline*]
