@@ -145,7 +145,9 @@
       (and (.startsWith s "~@")
            (not (re-find #"\s" (.trim s))))
       (let [target (-> s (subs 2))]
-        (dot-get target (:env config)))
+        ;; XXX: wtf; why (:env config) here where everyone else is using *env*?
+        ;; I highly doubt that that was accidental
+        (dot-get target env)) ;;(:env config)))
 
       ;; If `s` starts with "~$", then replace it with the
       ;; stdout result of running the command locally.
@@ -337,9 +339,9 @@
 
 
       ;; Functions
-      (let [yield (try
-                    (apply (resolve fun)
-                           (*pipeline* (-> m first val) config))
+      (let [args (*pipeline* (-> m first val) config)
+            yield (try
+                    (apply (resolve fun) args)
                     (catch NullPointerException npe
                       (log :error (format (str "Caught NullPointerException while calling "
                                                "function \"%s\" with arguments: %s")
