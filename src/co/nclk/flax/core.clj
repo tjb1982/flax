@@ -106,7 +106,7 @@
                              (-> match (.endsWith ")")))
                         (-> match (subs 1) (swap {:env env})
                             (eval-clj-string {:env env})))
-                      (-> match 
+                      (-> match
                           (subs (+ 3 (-> label name count))
                                 (- (count match) 1))
                           (dot-get env)))
@@ -262,8 +262,10 @@
                           (recur (drop 1 args)
                                  (drop 1 argv)
                                  env))))]
-            (binding [*env* env]
-              (do-statements statements (assoc config :env env) pipeline)))))
+            ;; XXX no idea what this was supposed to accomplish, but it broke
+            ;; almost everything.
+            ;(binding [*env* env]
+              (do-statements statements (assoc config :env env) pipeline))))
 
       (symbol "#")
       (let [pipeline *pipeline*]
