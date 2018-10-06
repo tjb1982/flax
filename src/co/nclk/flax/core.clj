@@ -86,7 +86,6 @@
 
 (defn shell-interpolate
   [s]
-  (println s)
   (let [[directive, cmd] (clojure.string/split s #"\s+" 2)
         file (-> directive (clojure.string/split #"\$") second)
         proc (-> (Runtime/getRuntime)
@@ -379,11 +378,19 @@
                (map #(with-out-str (clojure.pprint/pprint (*pipeline* % config)))
                     (drop 1 args)))))
 
-
       ;; Functions
-      (let [args (*pipeline* (-> m first val) config)
+      (let [funstr (name fun)
+            delayed-evaluation (-> funstr (.startsWith "("))
+            fun (if delayed-evaluation
+                  (-> funstr (subs 1) symbol)
+                  fun)
+            args (-> m first val)
+            evaluated-args (if delayed-evaluation args (*pipeline* args config))
             yield (try
-                    (apply (resolve fun) args)
+                    (let [result (apply (resolve fun) evaluated-args)]
+                      (if delayed-evaluation
+                        (*pipeline* result config)
+                        result))
                     (catch NullPointerException npe
                       (log :error (format (str "Caught NullPointerException while calling "
                                                "function \"%s\" with arguments: %s")
@@ -526,7 +533,7 @@
       (catch Exception e
         (throw 
           (RuntimeException.
-            (with-out-str
+            #_(with-out-str
               (clojure.pprint/pprint {:config config}))
             e)))
         ))))
