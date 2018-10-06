@@ -70,7 +70,7 @@
   [v]
   (-> v clojure.pprint/pprint
         with-out-str
-        clojure.string/trim))
+        #_clojure.string/trim))
 
 (defn eval-clj-string
   [s config]
