@@ -70,7 +70,7 @@
   [v]
   (-> v clojure.pprint/pprint
         with-out-str
-        #_clojure.string/trim))
+        clojure.string/trim))
 
 (defn eval-clj-string
   [s config]
@@ -82,40 +82,86 @@
                (-> s (swap config) read-string))]
     (eval form)))
 
+
+
+(defn shell-interpolate
+  [s]
+  (println s)
+  (let [[directive, cmd] (clojure.string/split s #"\s+" 2)
+        file (-> directive (clojure.string/split #"\$") second)
+        proc (-> (Runtime/getRuntime)
+                 (.exec (into-array String
+                          ["bash" "-c" (clojure.string/trim cmd)])))
+        stream (clojure.java.io/reader
+                 (condp = file
+                   "out" (.getInputStream proc)
+                   "stdout" (.getInputStream proc)
+                   "err" (.getErrorStream proc)
+                   "stderr" (.getErrorStream proc)
+                   (.getInputStream proc)))
+        ;; XXX: default 5 minutes. Maybe not so good.
+        exited? (.waitFor proc 5 java.util.concurrent.TimeUnit/MINUTES)]
+    (if (-> file (= "exit"))
+      (if (true? exited?) (.exitValue proc) 124)
+      (clojure.string/join "\n"
+        (loop [lines []]
+          (let [line (.readLine stream)]
+            (if (nil? line)
+              lines
+              (recur (conj lines line)))))))))
+
+
 (defn pprint-interpolate
   [s label handler env]
   ;;(let [regex (re-pattern (str "~\\{" (name label) ":[\\w\\.-]+\\}"))]
   (let [regex (re-pattern
-                (str "~\\{" (name label) ":[^\\s\\}]+\\}" ;;":[\\w\\.-]+\\}"
+                (str "~\\{" (name label) ":.+?(?=\\})\\}"
+                ;;(str "~\\{" (name label) ":[^\\s\\}]+\\}" ;;":[\\w\\.-]+\\}"
                      (when (= label :pprint)
                        (str "|~\\@[^\\s\\)\\]\\;\\}]+" ;;"|~\\@[\\w\\.-]+"
-                            "|~\\([^\\)]*\\)"))))]
+                            "|~\\(.+?(?=\\)~)\\)~"
+                            "|~\\$.+?(?=\\$~)\\$~"
+                            ))))]
     (loop [s s final ""]
       (if (clojure.string/blank? s)
-        final
+        (str final s)
         (let [match (re-find regex s)]
           (if (nil? match)
             (recur nil (str final s))
-            (let [v (if (and (= label :pprint)
-                             (not (.startsWith match "~{")))
+            (let [v (cond
+
+                      (= label :shell)
+                      (-> match (clojure.string/replace #"^~\{shell:" "~\\$")
+                                (clojure.string/replace #"[\s+]?\}$" ""))
+
+                      (and (= label :pprint)
+                           (not (.startsWith match "~{")))
                       (cond
                         (-> match (.startsWith "~@"))
                         (-> match (subs 2) (dot-get env))
 
+                        (and (-> match (.startsWith "~$"))
+                             (-> match (.endsWith "$~")))
+                        (shell-interpolate (-> match (clojure.string/replace #"[\s+]?\$~[\s+]?$" "")))
+
                         (and (-> match (.startsWith "~("))
-                             (-> match (.endsWith ")")))
+                             (-> match (.endsWith ")~")))
                         (-> match (subs 1) (swap {:env env})
                             (eval-clj-string {:env env})))
+
+                      :else
                       (-> match
                           (subs (+ 3 (-> label name count))
                                 (- (count match) 1))
                           (dot-get env)))
                   after-match-idx (+ (.indexOf s match) (.length match))]
+              ;;(clojure.pprint/pprint ["TTT" match v])
               (recur (subs s after-match-idx)
                      (str final (clojure.string/replace-first
                                   (subs s 0 after-match-idx)
                                   regex
-                                  (handler v)))))))))))
+                                  (str (handler v))))))))))))
+
 
 (def ^:dynamic *env* nil)
 (defn swap
@@ -152,17 +198,7 @@
       ;; If `s` starts with "~$", then replace it with the
       ;; stdout result of running the command locally.
       (.startsWith s "~$")
-      (let [s (swap (subs s 2) config)
-            proc (-> (Runtime/getRuntime)
-                   (.exec (into-array String
-                            ["bash" "-c" (clojure.string/trim s)])))
-            stdout (clojure.java.io/reader (.getInputStream proc))]
-        (clojure.string/join "\n"
-          (loop [lines []]
-            (let [line (.readLine stdout)]
-              (if (nil? line)
-                lines
-                (recur (conj lines line)))))))
+      (shell-interpolate s)
 
       (.startsWith s "~clj")
       (eval-clj-string (subs s 4) config)
@@ -176,6 +212,7 @@
               (pprint-interpolate :json json/generate-string env)
               (pprint-interpolate :yaml yaml/generate-string env)
               (pprint-interpolate :pprint pprint-handler env)
+              (pprint-interpolate :shell shell-interpolate env)
               (parse @parser-options)
               (render env)
               ))))
