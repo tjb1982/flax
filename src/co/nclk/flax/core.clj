@@ -332,18 +332,56 @@
         (cfun pred testers))
 
       'for
-      (let [coll (-> fun-entry val first second (*pipeline* config))]
-        (doall
-          (map
-            #(let [env (merge env
-                              {(keyword
-                                 (-> fun-entry
-                                     val
-                                     ffirst
-                                     (*pipeline* config))) %})]
-              (*pipeline*
-                (->> fun-entry val (drop 1)) config))
-            coll)))
+      (let [args (-> fun-entry val)
+            body (-> args last)
+            bindings (-> args first)]
+        (when-not (even? (count bindings))
+          (throw (IllegalArgumentException.
+                   (ex-info "`for` requires and even number of forms in its binding vector"
+                            {:binding-vector bindings}))))
+        (let [[newenv evaluated-bindings]
+              (loop [env env result [] bindings bindings]
+                (if (empty? bindings)
+                  [env result]
+                  (let [current-binding (take 2 bindings)
+                        [cbkey cbsrc] current-binding
+                        cbval (*pipeline* cbsrc env)
+                        newenv (assoc env (keyword cbkey) cbval)]
+                    (recur newenv (conj result [(symbol (str cbkey)) cbval])
+                                  (drop 2 bindings)))))
+              binding-keys (map first evaluated-bindings)
+              binding-vector (vec (apply concat
+                                         (map (fn [[f s]] [f `(quote ~s)])
+                                              evaluated-bindings)))
+              form `(for ~binding-vector
+                     (let [local-env#
+                           (loop [env# (quote ~env)
+                                  bindings# (quote ~binding-keys)
+                                  vals*# (list ~@binding-keys)]
+                             (if (empty? bindings#)
+                               env#
+                               (let [key*# (keyword (first bindings#))
+                                     val*# (first vals*#)]
+                                 (recur (assoc env# key*# val*#)
+                                        (drop 1 bindings#)
+                                        (drop 1 vals*#)))))]
+                     (evaluate (quote ~body) local-env#)))]
+          (clojure.pprint/pprint form)
+          (eval form)))
+
+      ;;'for
+      ;;(let [coll (-> fun-entry val first second (*pipeline* config))]
+      ;;  (doall
+      ;;    (map
+      ;;      #(let [env (merge env
+      ;;                        {(keyword
+      ;;                           (-> fun-entry
+      ;;                               val
+      ;;                               ffirst
+      ;;                               (*pipeline* config))) %})]
+      ;;        (*pipeline*
+      ;;          (->> fun-entry val (drop 1)) (update-in config [:env] merge env)))
+      ;;      coll)))
 
       'or
       (loop [args (-> fun-entry val)]
@@ -379,20 +417,21 @@
                     (drop 1 args)))))
 
       ;; Functions
-      (let [funstr (name fun)
-            delayed-evaluation (-> funstr (.startsWith "("))
-            fun (if delayed-evaluation
+      (let [funstr (str fun)
+            delay-evaluation? (-> funstr (.startsWith "("))
+            fun (if delay-evaluation?
                   (-> funstr (subs 1) symbol)
                   fun)
             args (-> m first val)
-            evaluated-args (if delayed-evaluation args (*pipeline* args config))
+            evaluated-args (if delay-evaluation? args (*pipeline* args config))
             yield (try
                     (let [result (apply (resolve fun) evaluated-args)]
-                      (if delayed-evaluation
+                      (if delay-evaluation?
                         (*pipeline* result config)
                         result))
                     (catch NullPointerException npe
-                      (log :error (format (str "Caught NullPointerException while calling "
+                      (log :error (format (str "Possible missing function definition: "
+                                               "Caught NullPointerException while calling "
                                                "function \"%s\" with arguments: %s")
                                           (name fun)
                                           (vec m)))
@@ -531,12 +570,25 @@
 
           :else m)
       (catch Exception e
-        (throw 
-          (RuntimeException.
-            #_(with-out-str
-              (clojure.pprint/pprint {:config config}))
-            e)))
-        ))))
+        (when (or (map? m) (not (coll? m)))
+          (println (type e))
+          (log :error
+            (with-out-str
+              (clojure.pprint/pprint {:exception e
+                                      :trace m})))
+          (log :debug
+            (with-out-str
+              (println "\nEnvironment:")
+              (clojure.pprint/pprint (:env config)))))
+        (throw e)))
+
+      ;;(catch Exception e
+      ;;  (throw 
+      ;;    (RuntimeException.
+      ;;      #_(with-out-str
+      ;;        (clojure.pprint/pprint {:config config}))
+      ;;      e)))
+      )))
 
 
 (def ascii-art "
