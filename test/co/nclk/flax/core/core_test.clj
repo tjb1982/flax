@@ -7,23 +7,23 @@
   (testing "Pathwise with resolved functions"
     (let [result (flax/evaluate
                    (yaml/parse-string "
-                     ~(pathwise:
-                     - ~>'some
-                     - ~>'true?
+                     (pathwise:
+                     - ««some
+                     - ««true?
                      - foo.bar.baz")
                    {:foo {:bar {:baz true :quux false}}})]
       (-> result true? is)))
   (testing "Pathwise with custom functions"
     (let [result (flax/evaluate
                    (yaml/parse-string "
-                     ~(pathwise:
-                     - ~(fn:
+                     (pathwise:
+                     - (fn:
                        - [pred, things]
-                       - ~(not:
-                         - ~(apply:
-                           - ~@pred
-                           - [~(nth: [~@things, 2]]
-                     - ~>'nil?
+                       - (not:
+                         - (apply:
+                           - «pred
+                           - [(nth: [~@things, 2]]
+                     - ««nil?
                      - foo.bar.baz")
                    {:foo {:bar {:baz true :quux false}}})]
       (-> result true? is))))
@@ -36,18 +36,18 @@
             (yaml/parse-string string))]
       (-> result string? is)
       (-> result (= string) is)))
-  (testing "Keyword literals take the form \"~:foo\""
+  (testing "Keyword literals take the form \"«:foo\""
     (let [keyword* :foo
           result
           (flax/evaluate
-            (yaml/parse-string "~:foo"))]
+            (yaml/parse-string "«:foo"))]
       (-> result keyword? is)
       (-> result (= keyword*) is)))
-  (testing "Symbol literals take the form \"~'foo\""
+  (testing "Symbol literals take the form \"«'foo\""
     (let [symbol* 'foo
           result
           (flax/evaluate
-            (yaml/parse-string "~'foo"))]
+            (yaml/parse-string "«'foo"))]
       (-> result symbol? is)
       (-> result (= symbol*) is)))
   (testing "Numbers without floating points become instances of java.lang.Integer"
@@ -73,16 +73,14 @@
           result
           (flax/evaluate
             (yaml/parse-string "
-              ~(fn:
-              - [x]
-              - ~@x"))]
+              (fn: [[x], «x]"))]
       (-> (supers (class result)) (= (supers (class fun))) is)
       (-> (result 1) (= (fun 1)) is))
     (let [fun (fn [x & more] "x")
           result
           (flax/evaluate
             (yaml/parse-string "
-              ~(fn:
+              (fn:
               - [x]
               - x"))]
       (-> (result 1) (= (fun 1)) is)))
@@ -91,35 +89,35 @@
           result
           (flax/evaluate
             (yaml/parse-string "
-              ~(#:
-              - ~@0"))]
+              (#:
+              - «0"))]
       (-> (supers (class result)) (= (supers (class fun))) is)
       (-> (result 1) (= (fun 1)) is))
     (let [fun (fn [& x] "x")
           result
           (flax/evaluate
             (yaml/parse-string "
-              ~(#:
+              (#:
               - x"))]
       (-> (result 1) (= (fun 1)) is)))
 
 
-  (testing "~clj strings"
+  (testing "«clj strings"
     (let [env {:foo {:bar "baz"}}
           result1
           (flax/evaluate
             (yaml/parse-string "
-              foo.dog.chester.doodle: ~clj
-                  (let [x ~{pprint:foo}]
-                    (-> x :bar))")
+              foo.dog.chester.doodle: |
+                  «clj (let [x «{pprint:foo}]
+                         (-> x :bar))")
             env)
           result2
           (flax/evaluate (yaml/parse-string
-                           "foo.dog.chester.doodle: ~(identity ~@foo.bar)")
+                           "foo.dog.chester.doodle: «(identity «foo.bar»)")
                          env)
           result3
           (flax/evaluate (yaml/parse-string
-                           "foo.dog: '~(:~{baz} ~@x)'")
+                           "foo.dog: '«(:«{baz} «x»)'")
                          {:baz "quux" :x {:quux "lalala"}})]
       (-> result1 :foo :dog :chester :doodle (= "baz") is)
       (-> result2 :foo :dog :chester :doodle (= "baz") is)
@@ -130,21 +128,21 @@
     (let [env {:foo :bar}
           result
           (flax/evaluate
-            (yaml/parse-string "~@foo")
+            (yaml/parse-string "«foo")
             env)]
       (-> result keyword? is)
       (-> result (= :bar) is))
     (let [env {:foo {:bar "baz"}}
           result
           (flax/evaluate
-            (yaml/parse-string "~@foo.bar")
+            (yaml/parse-string "«foo.bar")
             env)]
       (-> result string? is)
       (-> result (= "baz") is))
     (let [env {:foo [{:bar "baz"}]}
           result
           (flax/evaluate
-            (yaml/parse-string "~@foo.0.bar")
+            (yaml/parse-string "«foo.0.bar")
             env)]
       (-> result string? is)
       (-> result (= "baz") is))
@@ -152,16 +150,15 @@
           result
           (try
             (flax/evaluate
-              (yaml/parse-string "~@foo.lala")
+              (yaml/parse-string "«foo.lala")
               env)
-            (catch RuntimeException re
-              (let [nfe (-> re .getCause)]
-                nfe)))]
+            (catch NumberFormatException nfe
+              nfe))]
       (->> result (instance? NumberFormatException) is))
     (let [env {:foo {:0 {:bar "baz"}}}
           result
           (flax/evaluate
-            (yaml/parse-string "~@foo.0.bar")
+            (yaml/parse-string "«foo.0.bar")
             env)]
       (-> result string? is)
       (-> result (= "baz") is))))

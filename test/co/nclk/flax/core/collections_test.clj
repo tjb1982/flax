@@ -124,7 +124,7 @@
             (yaml/parse-string "
               - 1
               - two
-              - ~'three"))]
+              - «'three"))]
       (-> result coll? is)
       (-> result sequential? is)
       (-> result vector? is)
@@ -135,10 +135,10 @@
           result
           (flax/evaluate
             (yaml/parse-string "
-              ~(let:
+              (let:
               - - lala
                 - foo.bar.1: three
                   foo.bar.1: four
-              - ~@lala")
+              - «lala")
             {:env {:foo {:bar ["one" "two"]}}})]
       (-> result (= {:foo {:bar ["one" "four"]}}) is))))

@@ -14,22 +14,22 @@
 
   (testing "Function in map"
     (let [src "
-~(map:
-- ~(fn:
+(map:
+- (fn:
   - [idx]
-  - ~@idx
-- ~(range: [0,5]
+  - «idx
+- (range: [0,5]
 "         result (yval src)]
       (-> result (= '(0 1 2 3 4)) is)))
 
 
   (testing "Function in map with environment variable as collection"
     (let [src "
-~(map:
-- ~(fn:
+(map:
+- (fn:
   - [arg]
-  - ~@arg
-- ~@five-exes
+  - «arg
+- «five-exes
 "
           env {:five-exes ["x","x","x","x","x"]}
           result (yval src env)]
@@ -38,11 +38,11 @@
 
   (testing "Function in map with environment variable with inter-function scope"
     (let [src "
-~(map:
-- ~(fn:
+(map:
+- (fn:
   - [arg]
-  - ~@an-ex
-- ~(range: [0,5]
+  - «an-ex
+- (range: [0,5]
 "
           env {:an-ex "x"}
           result (yval src env)]
@@ -51,11 +51,11 @@
 
   (testing "Function in map with environment variable as collection"
     (let [src "
-~(map:
-- ~(fn:
+(map:
+- (fn:
   - [arg]
-  - ~@arg
-- ~@five-exes
+  - «arg
+- «five-exes
 "
           env {:five-exes ["x","x","x","x","x"]}
           result (yval src env)]

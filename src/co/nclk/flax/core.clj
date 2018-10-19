@@ -19,7 +19,7 @@
 (declare swap)
 (declare evaluate)
 
-(def parser-options (atom {:tag-open "~{" :tag-close "}"}))
+(def parser-options (atom {:tag-open "«{" :tag-close "}"}))
 (def ^:dynamic *pipeline* nil)
 
 (defn config*
@@ -109,17 +109,60 @@
               lines
               (recur (conj lines line)))))))))
 
+(defn shell-handler
+  [s]
+  (let [result (shell-interpolate s)]
+    (println "xxxxxx" result)
+    result))
 
-(defn pprint-interpolate
+
+(defn interpolable-value
+  [label match env]
+  (cond
+    (= label :clj)
+    (-> match (clojure.string/replace #"^«\{clj:|[\s+]?\}$" ""))
+
+    (= label :sh)
+    (-> match (clojure.string/replace #"^«\{sh:" "«\\$")
+              (clojure.string/replace #"[\s+]?\}$" ""))
+
+    (and (= label :pprint)
+         (not (.startsWith match "«{")))
+    (cond
+      (and (-> match (.startsWith "«$"))
+           (-> match (.endsWith "$»")))
+      (shell-interpolate (-> match (clojure.string/replace #"\s*\$»$" "")))
+
+      (and (.startsWith match "«(") (.endsWith match ")»"))
+      (-> match (clojure.string/replace #"^«|»$" "") (eval-clj-string {:env env}))
+
+      (and (.startsWith match "«¡") (.endsWith match "!»"))
+      (-> match (clojure.string/replace #"^«¡\s*|\s*!»$" "") (dot-get env) yaml/generate-string)
+
+      (and (.startsWith match "«¿") (.endsWith match "?»"))
+      (-> match (clojure.string/replace #"^«¿\s*|\s*\?»$" "") (dot-get env) json/generate-string)
+
+      (and (.startsWith match "«")
+           (.endsWith match "»"))
+      (-> match (clojure.string/replace #"^«\s*|\s*»$" "") (dot-get env)))
+
+    :else
+    (-> match
+        (subs (+ 3 (-> label name count))
+              (- (count match) 1))
+        (dot-get env))))
+
+
+(defn interpolate
   [s label handler env]
-  ;;(let [regex (re-pattern (str "~\\{" (name label) ":[\\w\\.-]+\\}"))]
   (let [regex (re-pattern
-                (str "~\\{" (name label) ":.+?(?=\\})\\}"
-                ;;(str "~\\{" (name label) ":[^\\s\\}]+\\}" ;;":[\\w\\.-]+\\}"
+                (str "«\\{" (name label) ":.+?(?=\\})\\}"
                      (when (= label :pprint)
-                       (str "|~\\@[^\\s\\)\\]\\;\\}]+" ;;"|~\\@[\\w\\.-]+"
-                            "|~\\(.+?(?=\\)~)\\)~"
-                            "|~\\$.+?(?=\\$~)\\$~"
+                       (str "|«¡.*?(?=!»)!»" ;; yaml string (escaped)
+                            "|«¿.*?(?=\\?»)\\?»" ;; json string (escaped)
+                            "|«\\(.+?(?=\\)»)\\)»" ;; clojure quote snippets
+                            "|«\\$.+?(?=\\$»)\\$»" ;; shell snippets
+                            "|«[^\\{].*?(?=»)»" ;; linen snippets
                             ))))]
     (loop [s s final ""]
       (if (clojure.string/blank? s)
@@ -127,39 +170,16 @@
         (let [match (re-find regex s)]
           (if (nil? match)
             (recur nil (str final s))
-            (let [v (cond
-
-                      (= label :shell)
-                      (-> match (clojure.string/replace #"^~\{shell:" "~\\$")
-                                (clojure.string/replace #"[\s+]?\}$" ""))
-
-                      (and (= label :pprint)
-                           (not (.startsWith match "~{")))
-                      (cond
-                        (-> match (.startsWith "~@"))
-                        (-> match (subs 2) (dot-get env))
-
-                        (and (-> match (.startsWith "~$"))
-                             (-> match (.endsWith "$~")))
-                        (shell-interpolate (-> match (clojure.string/replace #"[\s+]?\$~[\s+]?$" "")))
-
-                        (and (-> match (.startsWith "~("))
-                             (-> match (.endsWith ")~")))
-                        (-> match (subs 1) (swap {:env env})
-                            (eval-clj-string {:env env})))
-
-                      :else
-                      (-> match
-                          (subs (+ 3 (-> label name count))
-                                (- (count match) 1))
-                          (dot-get env)))
+            (let [v (interpolable-value label match env)
                   after-match-idx (+ (.indexOf s match) (.length match))]
               ;;(clojure.pprint/pprint ["TTT" match v])
+              ;;(clojure.pprint/pprint (subs s 0 after-match-idx))
               (recur (subs s after-match-idx)
                      (str final (clojure.string/replace-first
                                   (subs s 0 after-match-idx)
                                   regex
-                                  (str (handler v))))))))))))
+                                  (clojure.string/re-quote-replacement
+                                    (str (handler v)))))))))))))
 
 
 (def ^:dynamic *env* nil)
@@ -169,49 +189,53 @@
     (cond
 
       ;; Env dump.
-      (= (clojure.string/trim s) "~@")
+      (= (clojure.string/trim s) "«*")
       env
 
       ;; Support for keyword literals.
-      (.startsWith s "~:")
+      (.startsWith s "«:")
       (keyword (subs s 2))
 
       ;; Support for symbol literals.
-      (.startsWith s "~'")
+      (.startsWith s "«'")
       (symbol (subs s 2))
 
       ;; Support for resolved symbol literals.
-      (.startsWith s "~>'")
-      (resolve (symbol (subs s 3)))
+      (.startsWith s "««")
+      (resolve (symbol (subs s 2)))
 
-      ;; If `s` starts with ~@, then replace it with the data held by the
+      ;; If `s` starts with "~$", then replace it with the
+      ;; stdout result of running the command locally.
+      (and (.startsWith s "«$")
+           (not (re-find #"\$»" (.trim s))))
+      (shell-interpolate s)
+
+      (.startsWith s "«clj")
+      (eval-clj-string (subs s 4) config)
+
+      ;; easier Clj interpolation.
+      (let [s (clojure.string/trim s)]
+        (and (.startsWith s "«(") (.endsWith s ")")))
+      (eval-clj-string (subs s 1) config)
+
+      ;; If `s` starts with «, then replace it with the data held by the
       ;; variable (i.e., not a string interpolation of it).
       ;; Supports '.' notation (e.g., foo.bar.0.baz etc.)
-      (and (.startsWith s "~@")
-           (not (re-find #"\s" (.trim s))))
-      (let [target (-> s (subs 2))]
+      (and (.startsWith s "«")
+           (not (.startsWith s "«{"))
+           (not (re-find #"»" (.trim s))))
+      (let [target (-> s (subs 1))]
         ;; XXX: wtf; why (:env config) here where everyone else is using *env*?
         ;; I highly doubt that that was accidental
         (dot-get target env)) ;;(:env config)))
 
-      ;; If `s` starts with "~$", then replace it with the
-      ;; stdout result of running the command locally.
-      (.startsWith s "~$")
-      (shell-interpolate s)
-
-      (.startsWith s "~clj")
-      (eval-clj-string (subs s 4) config)
-
-      ;; easier Clj interpolation.
-      (and (.startsWith s "~(") (.endsWith s ")"))
-      (eval-clj-string (subs s 1) config)
-
       ;; Interpolate.
       :else (-> s
-              (pprint-interpolate :json json/generate-string env)
-              (pprint-interpolate :yaml yaml/generate-string env)
-              (pprint-interpolate :pprint pprint-handler env)
-              (pprint-interpolate :shell shell-interpolate env)
+              (interpolate :json json/generate-string env)
+              (interpolate :yaml yaml/generate-string env)
+              (interpolate :sh shell-interpolate env)
+              (interpolate :clj #(eval-clj-string % env) env)
+              (interpolate :pprint pprint-handler env)
               (parse @parser-options)
               (render env)
               ))))
@@ -222,16 +246,16 @@
         env (:env config)
         fun-entry (->> m
                        (filter
-                         #(-> % key str (subs 1) (.startsWith "~(")))
+                         #(-> % key str (subs 1) (.startsWith "(")))
                        first)
-        fun (-> fun-entry key str (subs 3) symbol)
+        fun (-> fun-entry key str (subs 2) symbol)
         do-statements (fn [statements config pipeline]
                         (loop [statements statements last-ret nil]
                           (if (empty? statements)
                             last-ret
                             ;;(let [ret (binding [*env* (:env config)]
                             ;;            (pipeline (first statements) config))]
-                            (let [ret (pipeline (first statements) config)]
+                            (let [ret (binding [*env* nil] (pipeline (first statements) config))]
                               (recur (drop 1 statements) ret)))))]
     ;; XXX: An interesting idea because it's more "pure", but not sure it works.
     ;;(let [sexp (conj
@@ -301,7 +325,7 @@
             ;; XXX no idea what this was supposed to accomplish, but it broke
             ;; almost everything.
             ;(binding [*env* env]
-              (do-statements statements (assoc config :env env) pipeline))))
+            (do-statements statements (assoc config :env env) pipeline))))
 
       (symbol "#")
       (let [pipeline *pipeline*]
@@ -332,6 +356,8 @@
         (cfun pred testers))
 
       'for
+      ;; FIXME: while this is fine for some things, any unreadable Java object will
+      ;; throw an exception because "can't embed object in code"
       (let [args (-> fun-entry val)
             body (-> args last)
             bindings (-> args first)]
@@ -366,7 +392,7 @@
                                         (drop 1 bindings#)
                                         (drop 1 vals*#)))))]
                      (evaluate (quote ~body) local-env#)))]
-          (clojure.pprint/pprint form)
+          ;;(clojure.pprint/pprint form)
           (eval form)))
 
       ;;'for
@@ -538,7 +564,7 @@
   [m config]
   (cond
     ;; Functions and special forms
-    (->> (keys m) (some #(-> % str (subs 1) (.startsWith "~("))))
+    (->> (keys m) (some #(-> % str (subs 1) (.startsWith "("))))
     (evaluate-function-or-special-form m config)
 
     ;; All other maps
