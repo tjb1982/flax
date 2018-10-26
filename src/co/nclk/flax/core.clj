@@ -4,7 +4,7 @@
             [co.nclk.flax.data :as data]
             ;;[cheshire.core :as json]
             [clojure.data.json :as json]
-            [cheshire.generate :as cheshire]
+            ;;[cheshire.generate :as cheshire]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
   ;; FIXME: does this belong here? Should there be a generic mechanism for 
@@ -15,7 +15,7 @@
   (:import co.nclk.flax.data.FileDataConnector)
   (:gen-class))
 
-(cheshire/add-encoder clojure.lang.Var cheshire/encode-str)
+;;(cheshire/add-encoder clojure.lang.Var cheshire/encode-str)
 
 (declare swap)
 (declare evaluate)
