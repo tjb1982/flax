@@ -2,7 +2,8 @@
   (:require [clj-yaml.core :as yaml]
             [clojure.tools.logging :refer [log]]
             [co.nclk.flax.data :as data]
-            [cheshire.core :as json]
+            ;;[cheshire.core :as json]
+            [clojure.data.json :as json]
             [cheshire.generate :as cheshire]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
@@ -109,12 +110,6 @@
               lines
               (recur (conj lines line)))))))))
 
-(defn shell-handler
-  [s]
-  (let [result (shell-interpolate s)]
-    (println "xxxxxx" result)
-    result))
-
 
 (defn interpolable-value
   [label match env]
@@ -140,7 +135,7 @@
       (-> match (clojure.string/replace #"^«¡\s*|\s*!»$" "") (dot-get env) yaml/generate-string)
 
       (and (.startsWith match "«¿") (.endsWith match "?»"))
-      (-> match (clojure.string/replace #"^«¿\s*|\s*\?»$" "") (dot-get env) json/generate-string)
+      (-> match (clojure.string/replace #"^«¿\s*|\s*\?»$" "") (dot-get env) json/write-str)
 
       (and (.startsWith match "«")
            (.endsWith match "»"))
@@ -231,7 +226,7 @@
 
       ;; Interpolate.
       :else (-> s
-              (interpolate :json json/generate-string env)
+              (interpolate :json json/write-str env)
               (interpolate :yaml yaml/generate-string env)
               (interpolate :sh shell-interpolate env)
               (interpolate :clj #(eval-clj-string % env) env)

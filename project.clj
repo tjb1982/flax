@@ -9,7 +9,8 @@
                  [stencil "0.5.0"]
                  [clj-ssh "0.5.11"]
                  [co.nclk/clj-yaml "1.0.0"]
-                 [cheshire "5.8.0"]
+                 ;;[cheshire "5.8.0"]
+                 [org.clojure/data.json "0.2.6"]
                  ]
   :aot :all
   ;:main co.nclk.flax.main
