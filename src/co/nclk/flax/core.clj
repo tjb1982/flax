@@ -196,8 +196,8 @@
       (symbol (subs s 2))
 
       ;; Support for resolved symbol literals.
-      (.startsWith s "««")
-      (resolve (symbol (subs s 2)))
+      (and (.startsWith s "»") (.endsWith s "«"))
+      (resolve (symbol (subs s 1 (dec (count s)))))
 
       ;; If `s` starts with "~$", then replace it with the
       ;; stdout result of running the command locally.

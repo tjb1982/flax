@@ -8,8 +8,8 @@
     (let [result (flax/evaluate
                    (yaml/parse-string "
                      (pathwise:
-                     - ««some
-                     - ««true?
+                     - »some«
+                     - »true?«
                      - foo.bar.baz")
                    {:foo {:bar {:baz true :quux false}}})]
       (-> result true? is)))
@@ -23,7 +23,7 @@
                          - (apply:
                            - «pred
                            - [(nth: [~@things, 2]]
-                     - ««nil?
+                     - »nil?«
                      - foo.bar.baz")
                    {:foo {:bar {:baz true :quux false}}})]
       (-> result true? is))))
