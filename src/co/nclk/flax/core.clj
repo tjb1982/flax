@@ -16,6 +16,7 @@
   (:gen-class))
 
 ;;(cheshire/add-encoder clojure.lang.Var cheshire/encode-str)
+(def ex-trace (atom []))
 
 (declare swap)
 (declare evaluate)
@@ -60,11 +61,13 @@
         (recur (second parts)
                (get-with-string-maybe-index (first parts) env)))
       :else
-      (when-not (or (not (coll? env))
-                    (empty? env)
-                    (clojure.string/blank? target))
-        (let [data (get-with-string-maybe-index target env)]
-          (if (string? data) (clojure.string/trim data) data))))))
+      (if (= target "*")
+        env
+        (when-not (or (not (coll? env))
+                      (empty? env)
+                      (clojure.string/blank? target))
+          (let [data (get-with-string-maybe-index target env)]
+            (if (string? data) (clojure.string/trim data) data)))))))
 
 
 (defn pprint-handler
@@ -176,6 +179,13 @@
                                   (clojure.string/re-quote-replacement
                                     (str (handler v)))))))))))))
 
+(defn ns-resolve-str
+  [s]
+  (if (.contains s "/")
+    (let [symbols (map symbol (clojure.string/split s #"/"))]
+      (require (first symbols))
+      (apply ns-resolve symbols))
+    (resolve (symbol s))))
 
 (def ^:dynamic *env* nil)
 (defn swap
@@ -184,7 +194,7 @@
     (cond
 
       ;; Env dump.
-      (= (clojure.string/trim s) "«*")
+      (get #{"«" "«*"} (clojure.string/trim s))
       env
 
       ;; Support for keyword literals.
@@ -197,7 +207,8 @@
 
       ;; Support for resolved symbol literals.
       (and (.startsWith s "»") (.endsWith s "«"))
-      (resolve (symbol (subs s 1 (dec (count s)))))
+      (ns-resolve-str (subs s 1 (dec (count s))))
+      ;;(resolve (symbol (subs s 1 (dec (count s)))))
 
       ;; If `s` starts with "~$", then replace it with the
       ;; stdout result of running the command locally.
@@ -235,14 +246,38 @@
               (render env)
               ))))
 
+
+(defn pathwise
+  [env cfun pred parts]
+  (let [parts* (if (string? parts)
+                 (clojure.string/split parts #"\.")
+                 parts)
+        testers (map #(dot-get % env)
+                     (reduce
+                       (fn [coll part]
+                         (let [part (name part)]
+                           (if (last coll)
+                             (conj coll (str (last coll) "." part))
+                             (conj coll part))))
+                       []
+                       parts*))]
+    (cfun pred testers)))
+
+
 (defn evaluate-function-or-special-form
   [m config]
   (let [config (config* config)
         env (:env config)
-        fun-entry (->> m
-                       (filter
-                         #(-> % key str (subs 1) (.startsWith "(")))
-                       first)
+        m (->> m (map (fn [e] [(-> e key str (subs 1) (clojure.string/replace #"\|" "(") keyword)
+                               (val e)]))
+                 (into {}))
+        {:keys [fun-entry fun-config]}
+        (->> m (reduce
+                 (fn [p e]
+                   (if (-> e key str (subs 1) (.startsWith "("))
+                     (assoc p :fun-entry e)
+                     (assoc p :fun-config (conj (or (:fun-config p) {}) e))))
+                 nil))
         fun (-> fun-entry key str (subs 2) symbol)
         do-statements (fn [statements config pipeline]
                         (loop [statements statements last-ret nil]
@@ -252,20 +287,6 @@
                             ;;            (pipeline (first statements) config))]
                             (let [ret (binding [*env* nil] (pipeline (first statements) config))]
                               (recur (drop 1 statements) ret)))))]
-    ;; XXX: An interesting idea because it's more "pure", but not sure it works.
-    ;;(let [sexp (conj
-    ;;             (->> (val fun-entry)
-    ;;                  (map-indexed
-    ;;                    #(let [item (evaluate %2 config)]
-    ;;                      (if (contains? #{'let 'fn 'binding 'for} fun)
-    ;;                        (if (= %1 0)
-    ;;                          (into [] item) item)
-    ;;                        (if (contains? #{'defn} fun)
-    ;;                          (if (= %1 1)
-    ;;                            (into [] item) item)
-    ;;                          item)))))
-    ;;             fun)]
-    ;;  (eval sexp))
 
     (condp = fun
       ;; Special forms
@@ -335,24 +356,16 @@
             (do-statements (-> fun-entry val) (assoc config :env env) pipeline))))
 
       'pathwise
-      (let [parts (clojure.string/split
-                    (-> fun-entry val (nth 2) (*pipeline* config))
-                    #"\.")
-            cfun (-> fun-entry val first (*pipeline* config))
-            pred (-> fun-entry val second (*pipeline* config))
-            testers (map #(dot-get % env)
-                         (reduce
-                           (fn [coll part]
-                             (if (last coll)
-                               (conj coll (str (last coll) "." part))
-                               (conj coll part)))
-                           []
-                           parts))]
-        (cfun pred testers))
+      (pathwise
+        env
+        (-> fun-entry val first (*pipeline* config))
+        (-> fun-entry val second (*pipeline* config))
+        (-> fun-entry val (nth 2) (*pipeline* config)))
 
       'for
       ;; FIXME: while this is fine for some things, any unreadable Java object will
       ;; throw an exception because "can't embed object in code"
+      ;; e.g., (atom :x)
       (let [args (-> fun-entry val)
             body (-> args last)
             bindings (-> args first)]
@@ -439,27 +452,24 @@
 
       ;; Functions
       (let [funstr (str fun)
-            delay-evaluation? (-> funstr (.startsWith "("))
-            fun (if delay-evaluation?
-                  (-> funstr (subs 1) symbol)
-                  fun)
+            delay-evaluation? (-> fun-config :delay-evaluation?)
             args (-> m first val)
             evaluated-args (if delay-evaluation? args (*pipeline* args config))
             yield (try
-                    (let [result (apply (resolve fun) evaluated-args)]
+                    (let [resolved (ns-resolve-str funstr)
+                          result (apply resolved evaluated-args)]
                       (if delay-evaluation?
                         (*pipeline* result config)
                         result))
-                    (catch NullPointerException npe
-                      (log :error (format (str "Possible missing function definition: "
-                                               "Caught NullPointerException while calling "
-                                               "function \"%s\" with arguments: %s")
-                                          (name fun)
-                                          (vec m)))
-                        (throw npe)
-                        ))]
+                    (catch Exception e
+                      (throw
+                        (ex-info
+                          "linen: exception while calling function"
+                          {:function (name fun)
+                           :arguments args}
+                          e))))]
         (if (coll? yield)
-          ;; FIXME: Laziness disabled?
+          ;; Laziness disabled.
           (doall yield)
           yield)))))
 
@@ -559,7 +569,9 @@
   [m config]
   (cond
     ;; Functions and special forms
-    (->> (keys m) (some #(-> % str (subs 1) (.startsWith "("))))
+    ;;(->> (keys m) (some #(-> % str (subs 1) (.startsWith "("))))
+    (let [keys* (keys m)]
+      (some #(re-find #"\(|\|" (str %)) keys*))
     (evaluate-function-or-special-form m config)
 
     ;; All other maps
@@ -591,25 +603,11 @@
 
           :else m)
       (catch Exception e
-        (when (or (map? m) (not (coll? m)))
-          (println (type e))
-          (log :error
-            (with-out-str
-              (clojure.pprint/pprint {:exception e
-                                      :trace m})))
-          (log :debug
-            (with-out-str
-              (println "\nEnvironment:")
-              (clojure.pprint/pprint (:env config)))))
-        (throw e)))
-
-      ;;(catch Exception e
-      ;;  (throw 
-      ;;    (RuntimeException.
-      ;;      #_(with-out-str
-      ;;        (clojure.pprint/pprint {:config config}))
-      ;;      e)))
-      )))
+        (when-let [trace (:trace (ex-data e))]
+          (clojure.pprint/pprint trace)
+          (println "---"))
+        (throw (ex-info "linen: exception in `evaluate`" {:trace m} e))
+        )))))
 
 
 (def ascii-art "

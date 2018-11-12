@@ -3,6 +3,13 @@
             [clj-yaml.core :as yaml]
             [co.nclk.flax.core :as flax]))
 
+(defmacro do-while
+  [test & [body]]
+  `(loop [ex# ~body]
+     (if-let [x# (~test ex#)]
+       (recur x#)
+       ex#)))
+
 (deftest test-pathwise
   (testing "Pathwise with resolved functions"
     (let [result (flax/evaluate
@@ -152,9 +159,11 @@
             (flax/evaluate
               (yaml/parse-string "«foo.lala")
               env)
-            (catch NumberFormatException nfe
-              nfe))]
-      (->> result (instance? NumberFormatException) is))
+            (catch RuntimeException re
+              re))]
+      (->> result (instance? RuntimeException) is)
+      (->> result (do-while .getCause) (instance? NumberFormatException) is)
+      )
     (let [env {:foo {:0 {:bar "baz"}}}
           result
           (flax/evaluate
