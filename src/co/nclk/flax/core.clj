@@ -452,12 +452,14 @@
 
       ;; Functions
       (let [funstr (str fun)
-            delay-evaluation? (-> fun-config :delay-evaluation?)
+            delay-evaluation? (-> funstr (.startsWith "("))
+            fun (if delay-evaluation?
+                  (-> funstr (subs 1) symbol)
+                  fun)
             args (-> m first val)
             evaluated-args (if delay-evaluation? args (*pipeline* args config))
             yield (try
-                    (let [resolved (ns-resolve-str funstr)
-                          result (apply resolved evaluated-args)]
+                    (let [result (apply (resolve fun) evaluated-args)]
                       (if delay-evaluation?
                         (*pipeline* result config)
                         result))
