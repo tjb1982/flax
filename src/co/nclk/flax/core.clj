@@ -467,7 +467,7 @@
                       (throw
                         (ex-info
                           "linen: exception while calling function"
-                          {:function (name fun)
+                          {:function fun
                            :arguments args}
                           e))))]
         (if (coll? yield)
