@@ -1,7 +1,7 @@
-(ns co.nclk.flax.core.inline-functions-test
+(ns flax.core.inline-functions-test
   (:require [clojure.test :refer :all]
             [clj-yaml.core :as yaml]
-            [co.nclk.flax.core :as flax]))
+            [flax.core :as flax]))
 
 #_(deftest test-inline-functions
   (testing "Inline selectors behave like methods"

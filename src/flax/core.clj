@@ -1,28 +1,22 @@
-(ns co.nclk.flax.core
+(ns flax.core
   (:require [clj-yaml.core :as yaml]
             [clojure.tools.logging :refer [log]]
-            [co.nclk.flax.data :as data]
             ;;[cheshire.core :as json]
             [clojure.data.json :as json]
             ;;[cheshire.generate :as cheshire]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
-  ;; FIXME: does this belong here? Should there be a generic mechanism for 
-  ;; importing other modules from various places? At the moment, I think it
-  ;; sounds like a good idea to have this be a protocol with a single function
-  ;; `resolve` and then let clients implement their own. Then we'd have to
-  ;; provide some way of injecting it (rather than importing it here).
-  (:import co.nclk.flax.data.FileDataConnector)
   (:gen-class))
 
-;;(cheshire/add-encoder clojure.lang.Var cheshire/encode-str)
-(def ex-trace (atom []))
 
 (declare swap)
 (declare evaluate)
 
+
 (def parser-options (atom {:tag-open "«{" :tag-close "}"}))
 (def ^:dynamic *pipeline* nil)
+(def ^:dynamic *handle-undefined* false)
+
 
 (defn config*
   [config & [newenv]]
@@ -31,6 +25,7 @@
     (if newenv
       (assoc config :env newenv)
       config)))
+
 
 (defn upmap
   [fn coll & [delay]]
@@ -43,6 +38,7 @@
                 coll))]
       @p)))
 
+
 (defn get-with-string-maybe-index
   [key* env]
   (if (sequential? env)
@@ -51,23 +47,59 @@
     (let [k (keyword key*)]
       (get env k))))
 
+
+(defn key-tree
+  [m]
+  (cond
+    (map? m)
+    (into {}
+      (for [[k v] m]
+        (if (coll? v)
+          [(keyword k) (let [x (key-tree v)]
+                         (if (and (map? x) (every? nil? (vals x)))
+                           (set (keys x))
+                           x)
+                         )]
+          [(keyword k) nil])))
+
+    (sequential? m)
+    (into [] (for [item m]
+               (key-tree item)))
+
+    :else m))
+
+
 (defn dot-get
   [target env]
-  (loop [target target env env]
-    (cond
-      (-> target (.contains "."))
-      (let [parts (-> target (clojure.string/split #"\." 2))]
-        ;; TODO support bracket sugar (e.g., foo[0].bar[baz])
-        (recur (second parts)
-               (get-with-string-maybe-index (first parts) env)))
-      :else
-      (if (= target "*")
-        env
-        (when-not (or (not (coll? env))
-                      (empty? env)
-                      (clojure.string/blank? target))
-          (let [data (get-with-string-maybe-index target env)]
-            (if (string? data) (clojure.string/trim data) data)))))))
+  (let [target* target
+        env* env]
+    (loop [target target env env]
+      (cond
+        (-> target (.contains "."))
+        (let [parts (-> target (clojure.string/split #"\." 2))]
+          ;; TODO support bracket sugar (e.g., foo[0].bar[baz])
+          (recur (second parts)
+                 (get-with-string-maybe-index (first parts) env)))
+        :else
+        (if (= target "*")
+          env
+          (when-not (or (not (coll? env))
+                        (empty? env)
+                        (clojure.string/blank? target))
+            (when *handle-undefined*
+              (when (or (not (associative? env))
+                        (not (contains? env (keyword target))))
+                (condp #(-> %2 name (= %1)) *handle-undefined*
+                  "throw"
+                  (throw (ex-info (format "flax: `%s` undefined." target)
+                                  {:path target*
+                                   :env (key-tree env*)}))
+                  "warn"
+                  (log :warn
+                       (format "flax: %s not contained in %s"
+                               (keyword target*) (key-tree env*))))))
+            (let [data (get-with-string-maybe-index target env)]
+              (if (string? data) (clojure.string/trim data) data))))))))
 
 
 (defn pprint-handler
@@ -75,6 +107,7 @@
   (-> v clojure.pprint/pprint
         with-out-str
         clojure.string/trim))
+
 
 (defn eval-clj-string
   [s config]
@@ -85,7 +118,6 @@
                    x))
                (-> s (swap config) read-string))]
     (eval form)))
-
 
 
 (defn shell-interpolate
@@ -179,13 +211,38 @@
                                   (clojure.string/re-quote-replacement
                                     (str (handler v)))))))))))))
 
+
+;;(defn ns-resolve-str
+;;  [s & {:keys [throw?]}]
+;;  (try
+;;    (if (.contains s "/")
+;;      (let [symbols (map symbol (clojure.string/split s #"/"))]
+;;        (require (first symbols))
+;;        (loop [attempts 10]
+;;          ;; XXX not actually certain this is needed, but theory is 
+;;          ;; that require doesn't deliver what we need right away sometimes,
+;;          ;; so there's a race here.
+;;          (if-let [x (apply ns-resolve symbols)]
+;;            x (if (pos? attempts)
+;;                (do (Thread/sleep 100)
+;;                    (recur (dec attempts)))))))
+;;      (resolve (symbol s)))
+;;    (catch Exception e (and throw? (throw e)))))
+
+
 (defn ns-resolve-str
-  [s]
-  (if (.contains s "/")
-    (let [symbols (map symbol (clojure.string/split s #"/"))]
-      (require (first symbols))
-      (apply ns-resolve symbols))
-    (resolve (symbol s))))
+  [s & {:keys [throw?]}]
+  (loop [attempts 10]
+    (let [result (try
+                   (if (.contains s "/")
+                     (let [symbols (map symbol (clojure.string/split s #"/"))]
+                       (require (first symbols))
+                       (apply ns-resolve symbols))
+                     (resolve (symbol s)))
+                   (catch Exception e
+                     (and (zero? attempts) throw? (throw e))))]
+      (or result (if (pos? attempts) (do (Thread/sleep 100) (recur (dec attempts))))))))
+
 
 (def ^:dynamic *env* nil)
 (defn swap
@@ -465,13 +522,14 @@
                       (throw
                         (ex-info
                           "linen: exception while calling function"
-                          {:function (name fun)
+                          {:function fun
                            :arguments args}
                           e))))]
         (if (coll? yield)
           ;; Laziness disabled.
           (doall yield)
           yield)))))
+
 
 (defn parse-keyparts
   [k]
@@ -500,6 +558,7 @@
                   nil (keyword %)))))
        (into [])))
 
+
 (defn evaluate-end-dotted-entry
   [oldval selvec v]
   (let [oldleaf (get-in oldval selvec)
@@ -521,12 +580,14 @@
       newleaf
       (assoc-in oldval selvec newleaf))))
 
+
 (defn evaluate-dotted-existing-entry
   [m newkey selvec v oldval]
   (let [newval (if (-> selvec last nil?)
                  (evaluate-end-dotted-entry oldval (butlast selvec) v)
                  (assoc-in oldval selvec v))]
     [newkey newval]))
+
 
 (defn evaluate-dotted-entry
   [m k v config]
@@ -578,6 +639,19 @@
     :else
     (evaluate-map-literal m config)))
 
+
+(defn symbolable?
+  [x]
+  (or (symbol? x)
+      (string? x)))
+
+
+(defn keywordable?
+  [x]
+  (or (keyword? x)
+      (symbolable? x)))
+
+
 (defn evaluate
   [m & [config pipeline]]
   (let [config (config* config)]
@@ -588,10 +662,11 @@
           (swap m config)
 
           (keyword? m)
-          (keyword (swap (subs (str m) 1) config))
+          (let [x (swap (subs (str m) 1) config)]
+            (if (keywordable? x) (keyword x) x))
 
           (symbol? m)
-          (symbol (swap (name m) config))
+          (swap (str m) config)
 
           (map? m)
           (evaluate-map m config)
@@ -609,6 +684,9 @@
         (throw (ex-info "linen: exception in `evaluate`" {:trace m} e))
         )))))
 
+(defn var
+  [s]
+  (str "«" (name s)))
 
 (def ascii-art "
 ~»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»««»»~

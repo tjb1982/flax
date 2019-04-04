@@ -1,7 +1,7 @@
-(ns co.nclk.flax.binding-test
+(ns flax.binding-test
   (:require [clojure.test :refer :all]
             [clj-yaml.core :as yaml]
-            [co.nclk.flax.core :as flax]))
+            [flax.core :as flax]))
 
 
 (defn yval

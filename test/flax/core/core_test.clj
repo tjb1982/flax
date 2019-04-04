@@ -1,7 +1,9 @@
-(ns co.nclk.flax.core.core-test
+(ns flax.core.core-test
   (:require [clojure.test :refer :all]
             [clj-yaml.core :as yaml]
-            [co.nclk.flax.core :as flax]))
+            [flax.core :as flax]
+            [clojure.tools.logging :refer [*logger-factory*]]
+            [clojure.tools.logging.impl :as logp]))
 
 (defmacro do-while
   [test & [body]]
@@ -9,6 +11,22 @@
      (if-let [x# (~test ex#)]
        (recur x#)
        ex#)))
+
+
+(def string-logger
+  (reify logp/Logger
+    (enabled? [logger level] true)
+    (write! [logger level throwable msg]
+      (println msg))))
+
+
+(def string-logger-factory
+  (reify logp/LoggerFactory
+    (name [factory] "")
+    (get-logger [factory logger-ns]
+      string-logger)
+    ))
+
 
 (deftest test-pathwise
   (testing "Pathwise with resolved functions"
@@ -170,4 +188,12 @@
             (yaml/parse-string "«foo.0.bar")
             env)]
       (-> result string? is)
-      (-> result (= "baz") is))))
+      (-> result (= "baz") is))
+
+    (binding [*logger-factory* string-logger-factory]
+      (let [env {:foo {:bar "baz"}}
+            result
+            (flax/evaluate "«foo.quux" env)]
+        (-> result nil? is)))
+      
+    ))

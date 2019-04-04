@@ -1,7 +1,7 @@
-(ns co.nclk.flax.core.collections-test
+(ns flax.core.collections-test
   (:require [clojure.test :refer :all]
             [clj-yaml.core :as yaml]
-            [co.nclk.flax.core :as flax]))
+            [flax.core :as flax]))
 
 (deftest test-literals
   (testing "Dictionary literals become clojure maps"
