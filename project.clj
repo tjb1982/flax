@@ -10,6 +10,7 @@
                  [clj-ssh "0.5.11"]
                  [org.pojagi/clj-yaml "1.1.1-SNAPSHOT"]
                  [org.clojure/data.json "0.2.6"]
+                 [cheshire "5.8.1"]
                  ]
   :aot :all
   ;:main co.nclk.flax.main

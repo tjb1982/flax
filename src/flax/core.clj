@@ -1,8 +1,8 @@
 (ns flax.core
   (:require [clj-yaml.core :as yaml]
             [clojure.tools.logging :refer [log]]
-            ;;[cheshire.core :as json]
-            [clojure.data.json :as json]
+            [cheshire.core :as json]
+            ;;[clojure.data.json :as json]
             ;;[cheshire.generate :as cheshire]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
@@ -11,6 +11,11 @@
 
 (declare swap)
 (declare evaluate)
+
+
+(defn json-write-str
+  [& argv]
+  (apply json/generate-string argv))
 
 
 (def parser-options (atom {:tag-open "«{" :tag-close "}"}))
@@ -170,7 +175,7 @@
       (-> match (clojure.string/replace #"^«¡\s*|\s*!»$" "") (dot-get env) yaml/generate-string)
 
       (and (.startsWith match "«¿") (.endsWith match "?»"))
-      (-> match (clojure.string/replace #"^«¿\s*|\s*\?»$" "") (dot-get env) json/write-str)
+      (-> match (clojure.string/replace #"^«¿\s*|\s*\?»$" "") (dot-get env) json-write-str)
 
       (and (.startsWith match "«")
            (.endsWith match "»"))
@@ -294,7 +299,7 @@
 
       ;; Interpolate.
       :else (-> s
-              (interpolate :json json/write-str env)
+              (interpolate :json json-write-str env)
               (interpolate :yaml yaml/generate-string env)
               (interpolate :sh shell-interpolate env)
               (interpolate :clj #(eval-clj-string % env) env)
