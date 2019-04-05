@@ -3,7 +3,7 @@
             [clojure.tools.logging :refer [log]]
             [cheshire.core :as json]
             ;;[clojure.data.json :as json]
-            ;;[cheshire.generate :as cheshire]
+            [cheshire.generate :as cheshire]
             [stencil.parser :refer [parse]]
             [stencil.core :refer [render]])
   (:gen-class))
@@ -12,6 +12,8 @@
 (declare swap)
 (declare evaluate)
 
+(cheshire/add-encoder java.lang.Runnable
+  (fn [c jg] (.writeString jg (str c))))
 
 (defn json-write-str
   [& argv]
